@@ -306,6 +306,18 @@ double cut_cell_integration::getTermJ (FEFaceValues<2> const & /*NULL_*/fe_face_
 	double j = 0;
 	double dof_i_jump = 0;
 	double dof_j_jump = 0;
+	// Matrix of coefficients c(i,j) where i is the shape function index and j is the coefficient (c0,c1...c3)
+	coefficients.reinit(4,4);
+	for (unsigned int i = 0;i<4;++i)
+		for (unsigned int j = 0;j<4;++j)
+		{
+			if (i==j || (i==0 && j==3))
+				coefficients(i,j) = 1;
+			else if((i==0 && (j==1 || j==2)) ||
+					(j==3 && (i==1 || i==2)) )
+				coefficients(i,j) = -1;
+			else coefficients(i,j) = 0;
+		}
 
 	for (int q_point = 0;q_point<n_face_q_points;++q_point)
 	{
@@ -346,11 +358,9 @@ double cut_cell_integration::getTermJ (FEFaceValues<2> const & /*NULL_*/fe_face_
 		// No common global DOF - should not happen
 		else assert(false && "No common DOF j");
 
-		j+= /*gamma_1*h**/dof_i_jump*dof_j_jump*fe_face_values.JxW(q_point);
+		j+= /*h**/dof_i_jump*dof_j_jump*fe_face_values.JxW(q_point);
 	}
-
 	return j;
-
 }
 // Calculate J term when the neighbor cell is inside
 double cut_cell_integration::getTermJ_mixed (FEFaceValues<2> const & /*NULL_*/fe_face_values,
@@ -825,6 +835,7 @@ double cut_cell_integration::getTermBeltramiBoundaryRHS (const Point<2> &X0,
 		return face_integration;
 }
 
+// Integrate mass matrix Term on the boundary: M_ij = \int_{\Gamma} phi_{i} phi_{j} d\Gamma
 double cut_cell_integration::CompMassMatrixSurface (const Point<2> &X0,
 		const Point<2> &X1,	const int dof_i, const int dof_j,
 		const double face_length)
@@ -949,6 +960,128 @@ double cut_cell_integration::CompMassConservation_boundary (const Point<2> &X0,
 		face_integration += u_at_q[q_point]*face_length*face_quadrature_weights[q_point];
 	}
 	return face_integration;
+}
+
+//Inspired by return_rhs_face_integration
+double cut_cell_integration::return_rhs_face_integration_term_K_mq (const Point<2> &X0,
+		const Point<2> &X1,	const Point<2> &normal,	const int dof_i,
+		const double face_length, std::vector<double> &u_at_nodes)
+{
+	Vector<double> exponents_matrix_x(4);
+	Vector<double> exponents_matrix_y(4);
+	exponents_matrix_x(1) = 1;
+	exponents_matrix_x(3) = 1;
+	exponents_matrix_y(2) = 1;
+	exponents_matrix_y(3) = 1;
+	Vector<double> u_at_q(2);
+
+	double xt;
+	double yt;
+	double final_face_integration = 0;
+	for (unsigned int q_point = 0;q_point<face_quadrature_points.size();++q_point)
+	{
+		xt = X0(0)+(X1(0)-X0(0))*face_quadrature_points[q_point](0);
+		yt = X0(1)+(X1(1)-X0(1))*face_quadrature_points[q_point](0);
+
+		Point<2> Xt_for_interpolation;
+		Xt_for_interpolation[0] = xt; Xt_for_interpolation[1] = yt;
+		for (int i = 0; i < 4;++i)
+			u_at_q[q_point] += u_at_nodes[i]*fe1.shape_value(i,Xt_for_interpolation);
+
+		Point<2> row_sum;
+		double face_integration_scalar = 0;
+		for (unsigned int i = 0;i<4;++i) {
+			Point<2> new_Xt;
+			// First row, representing d phi_i/dx * d phi_j/dx
+			new_Xt[0] = pow(xt,(exponents_matrix_x(i)+1))/(2*(1+exponents_matrix_x(i)))
+																																																													* pow(yt,exponents_matrix_y(i));
+			new_Xt[1] = pow(yt,(exponents_matrix_y(i)+1))/(2*(1+exponents_matrix_y(i)))
+																																																													* pow(xt,exponents_matrix_x(i));
+			new_Xt *= coefficients(dof_i,i);
+			row_sum += new_Xt;
+		}
+
+
+		face_integration_scalar = u_at_q[q_point]*row_sum*normal; // point*point = scalar (Is this the correct form?)
+		face_integration_scalar *= jacobian_determinant*face_quadrature_weights[q_point];
+		face_integration_scalar *= face_length;
+		final_face_integration += face_integration_scalar;
+	} // end quadrature sum
+	return final_face_integration;
+	//	return 1.1;
+}
+
+// Integration of term \int \phi_i \phi_j K_{mp} u_{p}^{n-1} d\Gamma
+double cut_cell_integration::CompMassMatrixSurface_term_K_mp (const Point<2> &X0,
+		const Point<2> &X1,	const int dof_i, const int dof_j,
+		const double real_face_length, std::vector<double> &u_at_nodes)
+{
+	Vector<double> u_at_q(2);
+	double face_integration = 0;
+		for (int q_point = 0;q_point<n_face_q_points;++q_point)
+		{
+			Point<2> new_Xt;
+			new_Xt[0] = X0(0)+(X1(0)-X0(0))*face_quadrature_points[q_point](0);
+			new_Xt[1] = X0(1)+(X1(1)-X0(1))*face_quadrature_points[q_point](0);
+
+			for (int i = 0; i < 4;++i)
+				u_at_q[q_point] += u_at_nodes[i]*fe1.shape_value(i,new_Xt);
+
+			face_integration += u_at_q[q_point]*
+					(fe1.shape_value(dof_i,new_Xt) )*(fe1.shape_value(dof_j,new_Xt) )
+					*face_quadrature_weights[q_point]*real_face_length;
+
+		} // end quadrature sum
+		return face_integration;
+}
+// Integration of term \int \phi_i K_{mq} u_{q}^{n-1} d\Gamma
+double cut_cell_integration::CompForcingSurface_term_K_mq (const Point<2> &X0,
+		const Point<2> &X1,	const int dof_i,
+		const double real_face_length, std::vector<double> &u_at_nodes)
+{
+	double face_integration = 0;
+	Vector<double> u_at_q(2);
+		for (int q_point = 0;q_point<n_face_q_points;++q_point)
+		{
+			Point<2> new_Xt;
+			new_Xt[0] = X0(0)+(X1(0)-X0(0))*face_quadrature_points[q_point](0);
+			new_Xt[1] = X0(1)+(X1(1)-X0(1))*face_quadrature_points[q_point](0);
+
+			for (int i = 0; i < 4;++i)
+				u_at_q[q_point] += u_at_nodes[i]*fe1.shape_value(i,new_Xt);
+
+			face_integration += u_at_q[q_point]*
+					(fe1.shape_value(dof_i,new_Xt) )*face_quadrature_weights[q_point]*real_face_length;
+
+		} // end quadrature sum
+		return face_integration;
+}
+
+double cut_cell_integration::CompForcingSurface_term_K_mrs (const Point<2> &X0,
+		const Point<2> &X1,	const int dof_i,
+		const double real_face_length, std::vector<double> &u_r_at_nodes,
+		std::vector<double> &u_s_at_nodes)
+{
+	double face_integration = 0;
+	Vector<double> u_r_at_q(2);
+	Vector<double> u_s_at_q(2);
+		for (int q_point = 0;q_point<n_face_q_points;++q_point)
+		{
+			Point<2> new_Xt;
+			new_Xt[0] = X0(0)+(X1(0)-X0(0))*face_quadrature_points[q_point](0);
+			new_Xt[1] = X0(1)+(X1(1)-X0(1))*face_quadrature_points[q_point](0);
+
+			for (int i = 0; i < 4;++i) {
+				u_r_at_q[q_point] += u_r_at_nodes[i]*fe1.shape_value(i,new_Xt);
+				u_s_at_q[q_point] += u_s_at_nodes[i]*fe1.shape_value(i,new_Xt);
+			}
+
+			face_integration += u_r_at_q[q_point]*u_s_at_q[q_point]*
+					(fe1.shape_value(dof_i,new_Xt) )*face_quadrature_weights[q_point]*real_face_length;
+
+		} // end quadrature sum
+//		std::cout << "face_integration: " <<face_integration << "\n";s
+		return face_integration;
 }
 
 

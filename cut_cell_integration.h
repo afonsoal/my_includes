@@ -142,6 +142,21 @@ public:
 
 	double CompMassConservation_boundary (const Point<2> &X0,
 			const Point<2> &X1, std::vector<double> &u_at_nodes,const double face_length);
+
+	double return_rhs_face_integration_term_K_mq (const Point<2> &X0,
+			const Point<2> &X1,	const Point<2> &normal,	const int dof_i,
+			const double face_length, std::vector<double> &u_at_nodes);
+	double CompMassMatrixSurface_term_K_mp (const Point<2> &X0,
+			const Point<2> &X1,	const int dof_i, const int dof_j,
+			const double real_face_length, std::vector<double> &u_at_nodes);
+
+	double CompForcingSurface_term_K_mq (const Point<2> &X0,
+			const Point<2> &X1,	const int dof_i,
+			const double real_face_length, std::vector<double> &u_at_nodes);
+	double CompForcingSurface_term_K_mrs (const Point<2> &X0,
+			const Point<2> &X1,	const int dof_i,
+			const double real_face_length, std::vector<double> &u_r_at_nodes,
+			std::vector<double> &u_s_at_nodes);
 };
 
 #endif
