@@ -61,6 +61,8 @@ public:
 	void ReorderAllVertices();
 	void OrganizeVertices();
 
+	void Compute(); // Change name later
+
 };
 
 

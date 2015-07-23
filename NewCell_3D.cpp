@@ -139,3 +139,4 @@ void NewCell_3D::ReorderAllVertices()
 	for (int face_it = 0; face_it < number_of_faces; ++face_it)
 		Obj_VectorNewFace[face_it].ReorderAllLineVertices();
 }
+

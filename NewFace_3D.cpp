@@ -12,6 +12,7 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/mapping.h>
+#include <fenv.h> // Catch NaN
 
 
 using namespace dealii;
@@ -163,11 +164,22 @@ void NewFace_3D:: CompCutFaceNormal(Point<3> cell_centroid)
 //  The result is two possible vectors, one pointing inwards and the other outwards the cell (this is the one I want)
 //	First, select any two lines (here [0] and [1]) and create two vectors
 
-	Point<3> vector_0 = Obj_VectorNewLine[0].X0 - Obj_VectorNewLine[0].X1;
-	Point<3> vector_1 = Obj_VectorNewLine[1].X0 - Obj_VectorNewLine[1].X1;
+	// NOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPE
+//	This is a bad idea that cost me a couple of hours! Choosing any two lines can result in taking parallel lines, so that
+//	the cross product is zero!!
+	Point<3> vector_0, vector_1, normal_vector_0;
+	for (unsigned  int line_it = 0; line_it < number_of_lines-1; ++line_it)
+	{
+		/*Point<3> */vector_0 = Obj_VectorNewLine[line_it].X0 - Obj_VectorNewLine[line_it].X1;
+		/*Point<3> */vector_1 = Obj_VectorNewLine[line_it+1].X0 - Obj_VectorNewLine[line_it+1].X1;
+		/*Point<3> */normal_vector_0 = CrossProduct(vector_0,vector_1);
+		double length = sqrt(normal_vector_0[0]*normal_vector_0[0]+normal_vector_0[1]*normal_vector_0[1]+normal_vector_0[2]*normal_vector_0[2]);
+		if (length-pow(10,-10) > 0.0)
+			break;
+	}
 
 	// If this is the right normal vector, it means that the line is going from P0 to P1 to P2
-	Point<3> normal_vector_0 = CrossProduct(vector_0,vector_1);
+//	/*Point<3> */normal_vector_0 = CrossProduct(vector_0,vector_1);
 	double length = sqrt(normal_vector_0[0]*normal_vector_0[0]+normal_vector_0[1]*normal_vector_0[1]+normal_vector_0[2]*normal_vector_0[2]);
 	normal_vector_0 = normal_vector_0/length;
 
@@ -187,6 +199,24 @@ void NewFace_3D:: CompCutFaceNormal(Point<3> cell_centroid)
 
 	else
 		normal= normal_vector_1;
+	if (!(normal == normal))
+	{
+		std::cout << "vector_0: " << vector_0 << std::endl;
+		std::cout << "vector_1: " << vector_1 << std::endl;
+		std::cout << "length: " << length << std::endl;
+		std::cout << "normal_vector_0: " << normal_vector_0 << std::endl;
+		std::cout << "normal_vector_1 " << normal_vector_1 << std::endl;
+		std::cout << "Obj_VectorNewLine[0].X0: " << Obj_VectorNewLine[0].X0 << std::endl;
+		std::cout << "Obj_VectorNewLine[0].X1: " << Obj_VectorNewLine[0].X1 << std::endl;
+		std::cout << "Obj_VectorNewLine[1].X0: " << Obj_VectorNewLine[1].X0 << std::endl;
+		std::cout << "Obj_VectorNewLine[1].X1: " << Obj_VectorNewLine[1].X1 << std::endl;
+		std::cout << "NORMAL: " << normal << std::endl;
+		std::cout << "face_index: " << face_index << std::endl;
+		std::cout << "is_boundary_face: " << is_boundary_face << std::endl;
+		std::cout << "face_centroid: " << face_centroid << std::endl;
+		std::cout << "cell_centroid: " << cell_centroid << std::endl;
+		assert(normal == normal); // Catch NaN
+	}
 
 	SetFaceNormal(normal);
 //	face_normal_vector = normal;
@@ -285,4 +315,85 @@ void NewFace_3D::SetGlobalLineIndex(int _line_index, int _global_line_index)
 }
 
 /////////////
+// Compute projection variables. Based on SetPolyhedron.cpp .h and on Mirtich's work (1999)
+void NewFace_3D::CompProjectionVars() // Change name later
+{
+//	feenableexcept(FE_INVALID | FE_OVERFLOW); // Catch NaN
+	CompProjectionVars_was_called = true;
+	double nx = fabs(face_normal_vector[X]);
+	double ny = fabs(face_normal_vector[Y]);
+	double nz = fabs(face_normal_vector[Z]);			// A => alfa, B=> beta, C=>gamma
+	if (nx > ny && nx > nz) gamma_ = X;  // X = 0, Y = 1, Z = 3 (defined in the beginning)
+	else gamma_ = (ny > nz) ? Y : Z;
 
+	alfa = (gamma_ + 1) % 3;
+	beta = (alfa + 1) % 3;
+
+	  w= - face_normal_vector[X] * vertices [0][X]
+	         - face_normal_vector[Y] * vertices[0][Y]
+	         - face_normal_vector[Z] * vertices[0][Z];
+
+		Point<2> centroid_projected;
+		centroid_projected[0] =face_centroid[alfa];
+		centroid_projected[1] =face_centroid[beta];
+
+	  for (int line_it = 0; line_it < number_of_lines ; ++line_it)
+	  {
+		  Obj_VectorNewLine[line_it].X_0_projection[alfa] = Obj_VectorNewLine[line_it].X0[alfa];
+		  Obj_VectorNewLine[line_it].X_0_projection[beta] = Obj_VectorNewLine[line_it].X0[beta];
+		  Obj_VectorNewLine[line_it].X_0_projection[gamma_] = (Obj_VectorNewLine[line_it].X0[alfa]*face_normal_vector[alfa]+
+				  Obj_VectorNewLine[line_it].X0[beta]*face_normal_vector[beta]+w)/(-face_normal_vector[gamma_]);
+
+		  Obj_VectorNewLine[line_it].X_1_projection[alfa] = Obj_VectorNewLine[line_it].X1[alfa];
+		  Obj_VectorNewLine[line_it].X_1_projection[beta] = Obj_VectorNewLine[line_it].X1[beta];
+		  Obj_VectorNewLine[line_it].X_1_projection[gamma_] = (Obj_VectorNewLine[line_it].X1[alfa]*face_normal_vector[alfa]+
+				  Obj_VectorNewLine[line_it].X1[beta]*face_normal_vector[beta]+w)/(-face_normal_vector[gamma_]);
+
+		  //	X_projection[initial point,final point][X,Y coordinate]
+		  double dy = Obj_VectorNewLine[line_it].X_1_projection[beta]-Obj_VectorNewLine[line_it].X_0_projection[beta];
+		  double dx = Obj_VectorNewLine[line_it].X_1_projection[alfa]-Obj_VectorNewLine[line_it].X_0_projection[alfa];
+		  double length = sqrt(dx*dx+dy*dy);
+
+		  dy =  dy / length;
+		  dx =  dx / length;
+
+		  Obj_VectorNewLine[line_it].length_projection = length; // Is this the same as unit_length?
+
+		  // Procedure to find the Normal vector of the projected line (normal_projection).
+//		  I believe I could do this inside the method which implements the normal vector of the face.
+			// If this is the right normal vector, it means that the line is going from X0 to X1!
+			Point<2> n1(dy,-dx);
+			// If this is the right normal vector, it means that the line is going from X1 to X0!
+			// We can rearrange this Vector so that it becomes oriented from X0 to X1. This
+			// will fix the parametric equation in return_face_integration.
+			Point<2> n2(-dy,dx);
+
+			// Exctract only the relevant (alfa, beta) components of the X_projection points.
+			Point<2> aux_n00;
+			Point<2> aux_n01;
+			aux_n00[0] =Obj_VectorNewLine[line_it].X_0_projection[alfa];
+			aux_n00[1] = Obj_VectorNewLine[line_it].X_0_projection[beta];
+
+			aux_n01[0] =Obj_VectorNewLine[line_it]. X_1_projection[alfa];
+			aux_n01[1] = Obj_VectorNewLine[line_it].X_1_projection[beta];
+
+			// aux_ni represents a point beginning on the middle of the line and being pointed by the normal
+			// vector. If the resulting point points outwards the plane, this is the right normal vector.
+			Point<2> aux_n1;
+			Point<2> aux_n2;
+			aux_n1 = (n1+(aux_n00+aux_n01)/2);
+		//	aux_n1 = (n1+(l->X_projection[0]+l->X_projection[1])/2);
+		//	Point<2> aux_n2 = (n2+(l->X_projection[0]+l->X_projection[1])/2);
+			aux_n2 = (n2+(aux_n00+aux_n01)/2);
+
+			Point<3> Xtemp;
+
+			if ( aux_n1.distance(centroid_projected) > aux_n2.distance(centroid_projected) )
+				Obj_VectorNewLine[line_it].normal_projection = n1;
+
+			else
+				Obj_VectorNewLine[line_it].normal_projection = n2;
+
+
+	  } // end loop Lines
+}

@@ -24,23 +24,33 @@ private:
 	struct NewLine {
 		Point<3> X0;
 		Point<3> X1;
+		 // Every line will be projected onto a alfa, beta plane, and this is the vector of
+		// points for the projected line. The coordinates will be the same as of the real line,
+		// excluding one (it can be X,Y or Z)
+		Point<3> X_0_projection;
+		Point<3> X_1_projection;
+		// normal vector of the projected line.
+		Point<2> normal_projection;
 		Point<3> normal_vector;
 		double real_face_length;
 		double unit_face_length;
 		int line_index;
 		int global_line_index;
 		bool is_boundary_line;
+		double length_projection;
 	};
 
 	std::vector<Point<3> > vertices;
-
 	Vector<double> levelset;
 
 public:
+	bool CompProjectionVars_was_called = false;
+	int alfa,beta,gamma_;
+	double w;
 	bool is_boundary_face;
 	int face_index; // This is updated in NewCell_3D.
 	Point<3> face_centroid;
-
+	enum { X = 0, Y = 1, Z = 2};
 //	int face_no;
 	Point<3> face_normal_vector;
 	std::vector<NewLine> Obj_VectorNewLine;
@@ -71,7 +81,7 @@ public:
 	void ReorderAllLineVertices();
 	void SetUnitLineLength(const int _line_index,const Point<3> & real_X0,const Point<3> &real_X1);
 	void SetGlobalLineIndex(int _line_index, int _global_line_index);
-
+	void CompProjectionVars();
 };
 
 
