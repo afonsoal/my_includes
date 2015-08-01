@@ -248,7 +248,7 @@ void Write_VTK::WriteFile(std::ofstream  &out)
 			<< '\n'
 			<< "LOOKUP_TABLE default"
 			<< '\n';
-	// This are just dummy values for visualization.
+	// This are just dummy values for visualization, need to take it out when implement the real solution.
 	for (unsigned int i=0; i<n_unique_vertices; ++i)
 	{
 		out << i << ' ' ;
