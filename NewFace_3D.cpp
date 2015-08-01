@@ -38,9 +38,36 @@ NewFace_3D::NewFace_3D(const MappingQ1<3> & _mapping, DoFHandler<3>::active_cell
 	is_boundary_face = true;
 	number_of_lines = 0;
 }
+void NewFace_3D::SetUnitCoordinates (const int _line_index,
+		const Point<3> &X0_unit,const Point<3> &X1_unit)
+{
+
+	Obj_VectorNewLine[_line_index].X0_unit = X0_unit;
+	Obj_VectorNewLine[_line_index].X1_unit = X1_unit;
+	SetUnitVertices(_line_index);
+}
+// Set a vector of Unit Vertices, composed of  "unique vertices", so that it can be used to compute the unit face centroid.
+void NewFace_3D::SetUnitVertices(const int _line_index)
+{
+	if (std::find(unit_vertices.begin(), unit_vertices.end(), Obj_VectorNewLine[_line_index].X0_unit)
+	== unit_vertices.end())
+	{
+		unit_vertices.push_back(Obj_VectorNewLine[_line_index].X0_unit);
+		unit_vertices_index++;
+	}
+
+	if (std::find(unit_vertices.begin(), unit_vertices.end(), Obj_VectorNewLine[_line_index].X1_unit)
+	== unit_vertices.end())
+	{
+		unit_vertices.push_back(Obj_VectorNewLine[_line_index].X1_unit);
+		unit_vertices_index++;
+	}
+
+}
 
 // Set coordinates of the line. Input information of the line index, if is a boundary line and the real face length of the face. The unit face length is input separately.
-void NewFace_3D::SetCoordinates (const int _line_index, const Point<3> &X0,const Point<3> &X1, bool _is_boundary_line, bool _sum_1_more_line)
+void NewFace_3D::SetCoordinates (const int _line_index, const Point<3> &X0,const Point<3> &X1,
+		bool _is_boundary_line, bool _sum_1_more_line)
 {
 	InputNewLine(_sum_1_more_line);
 	//	face_no = i;
@@ -52,6 +79,7 @@ void NewFace_3D::SetCoordinates (const int _line_index, const Point<3> &X0,const
 //	line_index = i;
 	Obj_VectorNewLine[_line_index].X0 = X0;
 	Obj_VectorNewLine[_line_index].X1 = X1;
+
 	Obj_VectorNewLine[_line_index].real_face_length = distance(X0,X1);
 
 	SetVertices(_line_index);
@@ -124,10 +152,31 @@ void NewFace_3D ::OutputVertices()
 //			if (fabs(Centroid[coord]) < pow(10,-10))
 //				Centroid[coord] = 0.0;
 		face_centroid = Centroid;
+		CompUnitFaceCentroid();
 
 }
+void NewFace_3D::CompUnitFaceCentroid()
+{
+		double X_centroid = 0;
+		double Y_centroid = 0;
+		double Z_centroid = 0;
+		for (unsigned int i = 0; i<unit_vertices.size(); ++i)
+		{
+			X_centroid += unit_vertices[i][0];
+			Y_centroid += unit_vertices[i][1];
+			Z_centroid += unit_vertices[i][2];
+		}
+		Point<3> Centroid (X_centroid/unit_vertices.size(),Y_centroid/unit_vertices.size(),Z_centroid/unit_vertices.size());
+//		return Centroid;
+		// I am not sure if I should do this, do I lose any accuracy with this?
+//		for (unsigned int coord = 0; coord<3; ++coord)
+//			if (fabs(Centroid[coord]) < pow(10,-10))
+//				Centroid[coord] = 0.0;
+		unit_face_centroid = Centroid;
+}
 
-double NewFace_3D::distance (const Point<3> &X0, const Point<3> &X1){
+double NewFace_3D::distance (const Point<3> &X0, const Point<3> &X1)
+{
 
 	double dx = (X1[0] - X0[0]);
 	double dy = (X1[1] - X0[1]);
@@ -137,6 +186,12 @@ double NewFace_3D::distance (const Point<3> &X0, const Point<3> &X1){
 	return sqrt_dxdydz;
 
 }
+double NewFace_3D::VectorLength (const Point<3> &X0)
+{
+	Point<3> X1(0.0,0.0,0.0);
+	return distance(X0,X1);
+}
+
 
 // the intersection is based on the levelset values on adjacent nodes!
 Point<3> NewFace_3D::GetIntersection(const Point<3> &X0, const Point<3>& X1,const int k0,const int k1)
@@ -157,31 +212,96 @@ void NewFace_3D:: SetFaceNormal(Point<3> normal)
 //	// fe_face_values.normal_vector(q_point)
 void NewFace_3D:: CompCutFaceNormal(Point<3> cell_centroid)
 {
-//	The face_index of the CutFace is always (number of faces - 1), because it is the last face to be input.
-
+//	std::cout << "Call to CompCutFaceNormal \n";
+	// face_index is only set in InputNewFace, so this is not the real cut face face_index;
+//	std::cout << "cell_index: " << cell_index << " face_index: " <<  face_index << "\n";
+//	std::cout << "is_boundary_face: " << is_boundary_face << std::endl;
+//	std::cout << "cell_centroid: " << cell_centroid << std::endl;
 //	The normal vector from the cut face can come from the cross product of any two vectors of the polygon describing the cut face.
 // These two vectors will come from three different points of the polygon.
 //  The result is two possible vectors, one pointing inwards and the other outwards the cell (this is the one I want)
 //	First, select any two lines (here [0] and [1]) and create two vectors
 
-	// NOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPENOPE
-//	This is a bad idea that cost me a couple of hours! Choosing any two lines can result in taking parallel lines, so that
-//	the cross product is zero!!
-	Point<3> vector_0, vector_1, normal_vector_0;
-	for (unsigned  int line_it = 0; line_it < number_of_lines-1; ++line_it)
+	// Procedure currently working.
+// Choosing any two lines can result in taking parallel lines, so that the cross product is zero. Have to verify if it is not zero.
+	Point<3> vector_0;
+	Point<3> vector_1;
+	Point<3> normal_vector_0;
+	for ( int line_it = 0; line_it < (number_of_lines-1); ++line_it)
 	{
+//		std::cout << "line_it: " << line_it << std::endl;
 		/*Point<3> */vector_0 = Obj_VectorNewLine[line_it].X0 - Obj_VectorNewLine[line_it].X1;
 		/*Point<3> */vector_1 = Obj_VectorNewLine[line_it+1].X0 - Obj_VectorNewLine[line_it+1].X1;
 		/*Point<3> */normal_vector_0 = CrossProduct(vector_0,vector_1);
-		double length = sqrt(normal_vector_0[0]*normal_vector_0[0]+normal_vector_0[1]*normal_vector_0[1]+normal_vector_0[2]*normal_vector_0[2]);
-		if (length-pow(10,-10) > 0.0)
+//		double length = sqrt(normal_vector_0[0]*normal_vector_0[0]+normal_vector_0[1]*normal_vector_0[1]+normal_vector_0[2]*normal_vector_0[2]);
+		double length = VectorLength(normal_vector_0);
+		normal_vector_0 = normal_vector_0/length;
+//		std::cout << "Obj_VectorNewLine[line_it].X0: " << Obj_VectorNewLine[line_it].X0 << std::endl;
+//		std::cout << "Obj_VectorNewLine[line_it+1].X0: " << Obj_VectorNewLine[line_it+1].X0 << std::endl;
+//		std::cout << "length: " << length << " normal_vector_0: " << normal_vector_0 << std::endl;
+//		std::cout << "vector_0: " << vector_0 << " vector_1: " << vector_1 << std::endl;
+//		std::cout << "CosAngle(vector_0,vector_1): " << CosAngle(vector_0,vector_1) << std::endl;
+
+		if ( (length-pow(10,-3) > 0.0) &&
+				( fabs( fabs(CosAngle(vector_0,vector_1))  - 1.0)  > pow(10,-2)  )
+				)
+		{
+
+//			std::cout << "Obj_VectorNewLine[line_it].X0: " << Obj_VectorNewLine[line_it].X0 << std::endl;
+//			std::cout << "Obj_VectorNewLine[line_it].X1: " << Obj_VectorNewLine[line_it].X1 << std::endl;
+//
+//			std::cout << "Obj_VectorNewLine[line_it+1].X0: " << Obj_VectorNewLine[line_it+1].X0 << std::endl;
+//			std::cout << "Obj_VectorNewLine[line_it+1].X1: " << Obj_VectorNewLine[line_it+1].X1 << std::endl;
+//			std::cout << "length: " << length << " normal_vector_0: " << normal_vector_0 << std::endl;
+//			std::cout << "vector_0: " << vector_0 << " vector_1: " << vector_1 << std::endl;
+
 			break;
+		}
 	}
 
-	// If this is the right normal vector, it means that the line is going from P0 to P1 to P2
-//	/*Point<3> */normal_vector_0 = CrossProduct(vector_0,vector_1);
-	double length = sqrt(normal_vector_0[0]*normal_vector_0[0]+normal_vector_0[1]*normal_vector_0[1]+normal_vector_0[2]*normal_vector_0[2]);
+//	Alternative approach. Facing problem where the normal vector length is too small.
+		// This seems like the most fool proof mechanism to get two vectors starting at the same point.
+/*	Point<3> point_0 = Obj_VectorNewLine[0].X0;
+	Point<3> point_1 = Obj_VectorNewLine[0].X1;
+	Point<3> point_2, point_3;
+	for ( int line_it = 1; line_it < number_of_lines; ++line_it)
+	{
+		if (Obj_VectorNewLine[line_it].X0 == point_1) {
+			point_2 = Obj_VectorNewLine[line_it].X0;
+			point_3 = Obj_VectorNewLine[line_it].X1;
+//			std::cout << line_it << std::endl;
+		}
+		else if (Obj_VectorNewLine[line_it].X1 == point_1)
+		{
+			point_2 = Obj_VectorNewLine[line_it].X0;
+			point_3 = Obj_VectorNewLine[line_it].X1;
+//			std::cout << line_it << std::endl;
+		}
+	}
+	for (unsigned int i = 0; i < vertices.size(); ++i)
+		std::cout << "vertices[i]: " << vertices[i] << std::endl;
+
+	std::cout << "point_0: " << point_0 << std::endl;
+	std::cout << "point_1: " << point_1 << std::endl;
+	std::cout << "point_2: " << point_2 << std::endl;
+	std::cout << "point_3: " << point_3 << std::endl;
+	vector_0 = point_1 - point_0;
+	vector_1 = point_3 - point_2;
+	normal_vector_0 = CrossProduct(vector_0,vector_1);
+	double length = VectorLength(normal_vector_0);
+	std::cout << "normal_vector_0: " << normal_vector_0 << std::endl;
 	normal_vector_0 = normal_vector_0/length;
+				std::cout << "vector_0: " << vector_0 << " vector_1: " << vector_1 << std::endl;
+
+	std::cout << "length: " << length << std::endl;
+	std::cout << "normal_vector_0: " << normal_vector_0 << std::endl;
+	assert ((length-pow(10,-3) > 0.0) );
+	assert( fabs( fabs(CosAngle(vector_0,vector_1))  - 1.0)  > pow(10,-2)  );*/
+
+//	assert( (Obj_VectorNewLine[line_it].X0 == Obj_VectorNewLine[line_it+1].X0) ||
+//			(Obj_VectorNewLine[line_it].X0 == Obj_VectorNewLine[line_it+1].X1) ||
+//			(Obj_VectorNewLine[line_it].X1 == Obj_VectorNewLine[line_it+1].X0) ||
+//			(Obj_VectorNewLine[line_it].X1 == Obj_VectorNewLine[line_it+1].X1) );
 
 	// If this is the right normal vector, it means that the line is going from P0 to P2 to P1!
 	Point<3> normal_vector_1 = -normal_vector_0;
@@ -201,9 +321,11 @@ void NewFace_3D:: CompCutFaceNormal(Point<3> cell_centroid)
 		normal= normal_vector_1;
 	if (!(normal == normal))
 	{
+		std::cout << "CosAngle(vector_0,vector_1): " << CosAngle(vector_0,vector_1) << std::endl;
+		std::cout << "fabs(CosAngle(vector_0,vector_1) - 1.0) > pow(10,-2): " << (fabs(CosAngle(vector_0,vector_1) - 1.0) > pow(10,-2)) << std::endl;
 		std::cout << "vector_0: " << vector_0 << std::endl;
 		std::cout << "vector_1: " << vector_1 << std::endl;
-		std::cout << "length: " << length << std::endl;
+//		std::cout << "length: " << length << std::endl;
 		std::cout << "normal_vector_0: " << normal_vector_0 << std::endl;
 		std::cout << "normal_vector_1 " << normal_vector_1 << std::endl;
 		std::cout << "Obj_VectorNewLine[0].X0: " << Obj_VectorNewLine[0].X0 << std::endl;
@@ -217,8 +339,10 @@ void NewFace_3D:: CompCutFaceNormal(Point<3> cell_centroid)
 		std::cout << "cell_centroid: " << cell_centroid << std::endl;
 		assert(normal == normal); // Catch NaN
 	}
-
+	assert(normal == normal); // Catch NaN
 	SetFaceNormal(normal);
+//	std::cout << "normal: " << normal << std::endl;
+//	std::cout << "END to CompCutFaceNormal \n";
 //	face_normal_vector = normal;
 }
 
@@ -232,6 +356,16 @@ Point<3> NewFace_3D::CrossProduct(Point<3> a, Point<3> b)
 	Product[1] = (a[2] * b[0]) - (a[0] * b[2]);
 	Product[2] = (a[0] * b[1]) - (a[1] * b[0]);
 	return Product;
+}
+
+// Returns the cosine of the angle. Remember: cos(0) = 1, cos(pi/2) = 0, cos(pi) = 1
+double NewFace_3D::CosAngle(const Point<3> a, const Point<3> b)
+{
+	double dot_product = DotProduct(a,b);
+	double length_a = VectorLength(a);
+	double length_b = VectorLength(b);
+        //Cross product formula
+	return dot_product/(length_a*length_b);
 }
 
 /////////////////
@@ -267,16 +401,26 @@ return normal_vector;
 
 void NewFace_3D::CompAllLineNormals ()
 {
+	// OLD: USE REAL X0, X1
+	// Need to use the REAL X0, X1, because this will be used to compute the change of points X0, X1 in ReorderAllVertices@CutCell
 	for (int line_it = 0; line_it < number_of_lines ; ++line_it)
 		Obj_VectorNewLine[line_it].normal_vector = CompLineNormal(Obj_VectorNewLine[line_it].X0,Obj_VectorNewLine[line_it].X1);
+//	 NEW: USE mapped unit X0, X1
+//	for (int line_it = 0; line_it < number_of_lines ; ++line_it)
+//		Obj_VectorNewLine[line_it].normal_vector = CompLineNormal(Obj_VectorNewLine[line_it].X0_unit,Obj_VectorNewLine[line_it].X1_unit);
 }
-
+//Called by NewCell_3D::ReorderAllVertices
 void NewFace_3D::ReorderAllLineVertices()
 {
 	for (int line_it = 0; line_it < number_of_lines ; ++line_it)
 	{
+		// OLD: USE REAL X0, X1
 		Point<3> X0 = Obj_VectorNewLine[line_it].X0;
 		Point<3> X1 = Obj_VectorNewLine[line_it].X1;
+		// NEW: USE mapped unit X0, X1 // I think here should be the real...
+//		Point<3> X0 = Obj_VectorNewLine[line_it].X0_unit;
+//		Point<3> X1 = Obj_VectorNewLine[line_it].X1_unit;
+
 		Point<3> X0_X1 = (X1 - X0)/distance(X0,X1); // Vector going from X0 to X1 (X0->X1)
 		Point<3> CrossProduct_X0X1 = CrossProduct(X0_X1,Obj_VectorNewLine[line_it].normal_vector);
 		CrossProduct_X0X1 = CrossProduct_X0X1 / distance(CrossProduct_X0X1, Point<3>(0,0,0));
@@ -291,13 +435,96 @@ void NewFace_3D::ReorderAllLineVertices()
 						change_order = false;
 
 		if (change_order)
-//			if (0)
 		{
 //			std::cout << "Change order of points! \n";
 //			std::cout << "cell_index: \n" << cell_index << std::endl;
+//			std::cout << "line_index: " << Obj_VectorNewLine[line_it].line_index << " line_it : " << line_it << std::endl;
 //			std::cout << "Obj_VectorNewLine[line_it].global_line_index: " << Obj_VectorNewLine[line_it].global_line_index << std::endl;
+//
+//			std::cout << "OLD X0: " << Obj_VectorNewLine[line_it].X0 << std::endl;
+//			std::cout << "OLD X1: " << Obj_VectorNewLine[line_it].X1 << std::endl;
+
 			Obj_VectorNewLine[line_it].X0 = X1;
 			Obj_VectorNewLine[line_it].X1 = X0;
+
+//			Point<3> temp (Obj_VectorNewLine[line_it].X0_unit);
+//			Obj_VectorNewLine[line_it].X0_unit = Obj_VectorNewLine[line_it].X1_unit;
+//			Obj_VectorNewLine[line_it].X1_unit = temp;
+//			std::cout << "New X0: " << Obj_VectorNewLine[line_it].X0 << std::endl;
+//			std::cout << "New X1: " << Obj_VectorNewLine[line_it].X1 << std::endl;
+		}
+	}
+}
+
+void NewFace_3D::ReorderAllLineVertices_Projection()
+{
+	for (int line_it = 0; line_it < number_of_lines ; ++line_it)
+	{
+		// OLD: USE REAL X0, X1
+		Point<3> X0 = Obj_VectorNewLine[line_it].X_0_projection;
+		Point<3> X1 = Obj_VectorNewLine[line_it].X_1_projection;
+		X0[gamma_] = 0.0;
+		X1[gamma_] = 0.0;
+		Point<3> normal_projection;
+		normal_projection[alfa] = Obj_VectorNewLine[line_it].normal_projection[X];
+		normal_projection[beta] = Obj_VectorNewLine[line_it].normal_projection[Y];
+		normal_projection[gamma_] = 0.0;
+		// NEW: USE mapped unit X0, X1 // I think here should be the real...
+//		Point<3> X0 = Obj_VectorNewLine[line_it].X0_unit;
+//		Point<3> X1 = Obj_VectorNewLine[line_it].X1_unit;
+
+		Point<3> X0_X1 = (X1 - X0)/distance(X0,X1); // Vector going from X0 to X1 (X0->X1)
+//		std::cout << "X0: " << X0 << " X1: " << X1 << " X0_X1: " << X0_X1 << std::endl;
+		Point<3> CrossProduct_X0X1 = CrossProduct(X0_X1,normal_projection);
+		CrossProduct_X0X1 = CrossProduct_X0X1 / distance(CrossProduct_X0X1, Point<3>(0,0,0));
+//		if (CrossProduct(X1_X0,Obj_VectorNewLine[line_it].normal_vector) ==  face_normal_vector)
+//
+		bool change_order = true;
+//		This is equivalent to
+//		!(CrossProduct_X1X0 == face_normal_vector), but considering a tolerance.
+//		If at least one coordinate of CrossProduct_X1X0 is different than its counterpart on normal_vector, they are different.
+//				for (unsigned int coord = 0; coord<3; ++coord)
+//					if ( !( (fabs(CrossProduct_X0X1[coord] - face_normal_vector[coord] ) < pow(10,-10) ) ) )
+//						change_order = false;
+
+//		Point<3> normal_vector_counterclockwise (0.0,0.0,1.0);
+		Point<3> normal_vector_counterclockwise (0.0,0.0,0.0);
+		normal_vector_counterclockwise[gamma_] = 1.0;
+		for (unsigned int coord = 0; coord<3; ++coord)
+			if ( !( (fabs(CrossProduct_X0X1[coord] - normal_vector_counterclockwise[coord] ) < pow(10,-10) ) ) )
+				change_order = false;
+
+//		std::cout << "normal_projection  " << normal_projection << std::endl;
+		if (change_order)
+		{
+//			std::cout << std::endl;
+//			std::cout << "Change order of points! \n";
+//			std::cout << "ReorderAllLineVertices_Projection! \n";
+//			std::cout << "face_index: \n" << face_index << std::endl;
+//			std::cout << "cell_index: \n" << cell_index << std::endl;
+//			std::cout << "line_index: " << Obj_VectorNewLine[line_it].line_index << " line_it : " << line_it << std::endl;
+//			std::cout << "X_0_projection: " << X0 << " X_1_projection: " << X1  << std::endl;
+			Point<3> temp(Obj_VectorNewLine[line_it].X_0_projection);
+			Obj_VectorNewLine[line_it].X_0_projection = Obj_VectorNewLine[line_it].X_1_projection;
+			Obj_VectorNewLine[line_it].X_1_projection = temp;
+//			std::cout << "X_0_projection: " << Obj_VectorNewLine[line_it].X_0_projection << " X_1_projection: " << Obj_VectorNewLine[line_it].X_1_projection  << std::endl;
+		}
+		else
+		{
+//			std::cout << std::endl;
+//			std::cout << "DON't Change order of points! \n";
+//			std::cout << "CrossProduct_X0X1: " << CrossProduct_X0X1 << std::endl;
+//			std::cout <<  "normal_vector_counterclockwise: " << normal_vector_counterclockwise << std::endl;
+//			std::cout << "ReorderAllLineVertices_Projection! \n";
+//			std::cout << "face_index: \n" << face_index << std::endl;
+//			std::cout << "cell_index: \n" << cell_index << std::endl;
+//			std::cout << "line_index: " << Obj_VectorNewLine[line_it].line_index << " line_it : " << line_it << std::endl;
+//			std::cout << "X_0_projection: " << X0 << " X_1_projection: " << X1  << std::endl;
+//			Point<3> temp(Obj_VectorNewLine[line_it].X_0_projection);
+//			Obj_VectorNewLine[line_it].X_0_projection = Obj_VectorNewLine[line_it].X_1_projection;
+//			Obj_VectorNewLine[line_it].X_1_projection = temp;
+//			std::cout << "X_0_projection: " << Obj_VectorNewLine[line_it].X_0_projection << " X_1_projection: " << Obj_VectorNewLine[line_it].X_1_projection  << std::endl;
+//			std::cout << std::endl; 			std::cout << std::endl;
 		}
 	}
 }
@@ -318,7 +545,8 @@ void NewFace_3D::SetGlobalLineIndex(int _line_index, int _global_line_index)
 // Compute projection variables. Based on SetPolyhedron.cpp .h and on Mirtich's work (1999)
 void NewFace_3D::CompProjectionVars() // Change name later
 {
-//	feenableexcept(FE_INVALID | FE_OVERFLOW); // Catch NaN
+	feenableexcept(FE_INVALID | FE_OVERFLOW); // Catch NaN
+
 	CompProjectionVars_was_called = true;
 	double nx = fabs(face_normal_vector[X]);
 	double ny = fabs(face_normal_vector[Y]);
@@ -329,25 +557,65 @@ void NewFace_3D::CompProjectionVars() // Change name later
 	alfa = (gamma_ + 1) % 3;
 	beta = (alfa + 1) % 3;
 
-	  w= - face_normal_vector[X] * vertices [0][X]
-	         - face_normal_vector[Y] * vertices[0][Y]
-	         - face_normal_vector[Z] * vertices[0][Z];
+	assert(fabs(face_normal_vector[gamma_]) > pow(10,-10) && "face_normal_vector[gamma_] = 0, NaN will be generated (X_n_projection[gamma_])");
 
-		Point<2> centroid_projected;
-		centroid_projected[0] =face_centroid[alfa];
-		centroid_projected[1] =face_centroid[beta];
+	Point<2> centroid_projected;
+//		centroid_projected[0] =face_centroid[alfa];
+//		centroid_projected[1] =face_centroid[beta];
+
+	// Use UNIT FACE CENTROID, because this is used to find the normal vector of the projected line.
+	centroid_projected[0] =unit_face_centroid[alfa];
+	centroid_projected[1] =unit_face_centroid[beta];
+
+
+//	From Mirtich (1999): From (39), the constant w can be
+//			computed: w = -n *  p, where p is any point on the face F .
+
+//	   OLD; I think I am using the wrong X0 and X1 here (the real ones!)
+//	  w= - face_normal_vector[X] * vertices [0][X]
+//	         - face_normal_vector[Y] * vertices[0][Y]
+//	         - face_normal_vector[Z] * vertices[0][Z];
+
+//		  w= - face_normal_vector[X] * unit_vertices [0][X]
+//		         - face_normal_vector[Y] * unit_vertices[0][Y]
+//		         - face_normal_vector[Z] * unit_vertices[0][Z];
+
+//	  w= - face_normal_vector[X] * Obj_VectorNewLine[0].X0_unit[X]
+//	         - face_normal_vector[Y] *Obj_VectorNewLine[0].X0_unit[Y]
+//	         - face_normal_vector[Z] * Obj_VectorNewLine[0].X0_unit[Z];
+
+			  w= - face_normal_vector[X] * unit_face_centroid [X]
+			         - face_normal_vector[Y] * unit_face_centroid[Y]
+			         - face_normal_vector[Z] * unit_face_centroid[Z];
+
+
+
+
 
 	  for (int line_it = 0; line_it < number_of_lines ; ++line_it)
 	  {
-		  Obj_VectorNewLine[line_it].X_0_projection[alfa] = Obj_VectorNewLine[line_it].X0[alfa];
-		  Obj_VectorNewLine[line_it].X_0_projection[beta] = Obj_VectorNewLine[line_it].X0[beta];
-		  Obj_VectorNewLine[line_it].X_0_projection[gamma_] = (Obj_VectorNewLine[line_it].X0[alfa]*face_normal_vector[alfa]+
-				  Obj_VectorNewLine[line_it].X0[beta]*face_normal_vector[beta]+w)/(-face_normal_vector[gamma_]);
 
-		  Obj_VectorNewLine[line_it].X_1_projection[alfa] = Obj_VectorNewLine[line_it].X1[alfa];
-		  Obj_VectorNewLine[line_it].X_1_projection[beta] = Obj_VectorNewLine[line_it].X1[beta];
-		  Obj_VectorNewLine[line_it].X_1_projection[gamma_] = (Obj_VectorNewLine[line_it].X1[alfa]*face_normal_vector[alfa]+
-				  Obj_VectorNewLine[line_it].X1[beta]*face_normal_vector[beta]+w)/(-face_normal_vector[gamma_]);
+		  // OLD; I think I am using the wrong X0 and X1 here (the real ones!)
+//		  Obj_VectorNewLine[line_it].X_0_projection[alfa] = Obj_VectorNewLine[line_it].X0[alfa];
+//		  Obj_VectorNewLine[line_it].X_0_projection[beta] = Obj_VectorNewLine[line_it].X0[beta];
+//		  Obj_VectorNewLine[line_it].X_0_projection[gamma_] = (Obj_VectorNewLine[line_it].X0[alfa]*face_normal_vector[alfa]+
+//				  Obj_VectorNewLine[line_it].X0[beta]*face_normal_vector[beta]+w)/(-face_normal_vector[gamma_]);
+//
+//		  Obj_VectorNewLine[line_it].X_1_projection[alfa] = Obj_VectorNewLine[line_it].X1[alfa];
+//		  Obj_VectorNewLine[line_it].X_1_projection[beta] = Obj_VectorNewLine[line_it].X1[beta];
+//		  Obj_VectorNewLine[line_it].X_1_projection[gamma_] = (Obj_VectorNewLine[line_it].X1[alfa]*face_normal_vector[alfa]+
+//				  Obj_VectorNewLine[line_it].X1[beta]*face_normal_vector[beta]+w)/(-face_normal_vector[gamma_]);
+
+		  // NEW; Use mapped X0 and X1.
+		  		  Obj_VectorNewLine[line_it].X_0_projection[alfa] = Obj_VectorNewLine[line_it].X0_unit[alfa];
+		  		  Obj_VectorNewLine[line_it].X_0_projection[beta] = Obj_VectorNewLine[line_it].X0_unit[beta];
+		  		  Obj_VectorNewLine[line_it].X_0_projection[gamma_] = (Obj_VectorNewLine[line_it].X0_unit[alfa]*face_normal_vector[alfa]+
+		  				  Obj_VectorNewLine[line_it].X0_unit[beta]*face_normal_vector[beta]+w)/(-face_normal_vector[gamma_]);
+
+		  		  Obj_VectorNewLine[line_it].X_1_projection[alfa] = Obj_VectorNewLine[line_it].X1_unit[alfa];
+		  		  Obj_VectorNewLine[line_it].X_1_projection[beta] = Obj_VectorNewLine[line_it].X1_unit[beta];
+		  		  Obj_VectorNewLine[line_it].X_1_projection[gamma_] = (Obj_VectorNewLine[line_it].X1_unit[alfa]*face_normal_vector[alfa]+
+		  				  Obj_VectorNewLine[line_it].X1_unit[beta]*face_normal_vector[beta]+w)/(-face_normal_vector[gamma_]);
 
 		  //	X_projection[initial point,final point][X,Y coordinate]
 		  double dy = Obj_VectorNewLine[line_it].X_1_projection[beta]-Obj_VectorNewLine[line_it].X_0_projection[beta];
@@ -396,4 +664,178 @@ void NewFace_3D::CompProjectionVars() // Change name later
 
 
 	  } // end loop Lines
+	  ReorderAllLineVertices_Projection();
+}
+//Set this as a face that will be later integrated in the stabilization term.
+void NewFace_3D::SetStabilizationFace(bool _is_bulk_stabilization_face)
+{
+	is_bulk_stabilization_face = _is_bulk_stabilization_face;
+}
+bool NewFace_3D::GetStabilizationFace() // Change name later
+{
+	return is_bulk_stabilization_face;
+}
+double NewFace_3D::DotProduct(const Point<3> a, const Point<3> b)
+{
+	return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+
+void NewFace_3D::CompFaceArea ()
+{
+//	std::cout << "\n";
+//	std::cout << "CompFaceArea ----- \n";
+//	std::cout << "cell_index: " << cell_index << " face_index: " <<  face_index << "\n";
+	assert(vertices.size() > 2);
+	Point<3> total (0.0,0.0,0.0);
+//	std::cout << "vertices.size(): " << vertices.size() << std::endl;
+	for (unsigned int i = 0; i < vertices.size(); ++i)
+	{
+//		std::cout << "vertices[i]: " << vertices[i] << std::endl;
+		Point<3> vi1 = vertices[i];
+		Point<3> vi2;
+//		if( i == (vertices.size() - 1))
+//			vi2 = vertices[0];
+//		else
+//			vi2 = vertices[i+1];
+
+		vi2 = vertices[(i+1) % vertices.size()];
+//		std::cout << "vi1: " << vi1 << " vi2: " << vi2 << std::endl;
+		Point<3> prod = CrossProduct(vi1,vi2);
+//		std::cout << "prod: " << prod << std::endl;
+		total[0]+=prod[0];
+		total[1]+=prod[1];
+		total[2]+=prod[2];
+//		std::cout << "total: " << total << std::endl;
+	}
+	std::cout << std::endl;
+//	double result = DotProduct(total,/*face_normal_vector*/ unit_normal(vertices[0],vertices[1],vertices[2]));
+	double result = DotProduct(total,face_normal_vector);
+//	yields same result, sometimes with the different sign, but that is corrected by using fabs below.
+
+	face_area = fabs(result/2.0);
+	double result_using_unit_normal = fabs(DotProduct(total,/*face_normal_vector*/ unit_normal(vertices[0],vertices[1],vertices[2]))/2);
+	if ( fabs(result_using_unit_normal - face_area) > pow(10,-3) )
+	{
+		std::cout << "\n";
+		std::cout << "CompFaceArea ----- \n";
+		std::cout << "is_boundary_face: " << is_boundary_face << std::endl;
+		std::cout << "cell_index: " << cell_index << " face_index: " <<  face_index << "\n";
+		std::cout << "face_area using unit_normal: " << result_using_unit_normal << std::endl;
+		std::cout << "face_area using face_normal_vector: " << face_area << std::endl;
+
+		std::cout << "unit_normal: " << unit_normal(vertices[0],vertices[1],vertices[2]) << std::endl; //
+		std::cout << "face_normal_vector: " << face_normal_vector << std::endl; // is ok
+		assert(0 && "fabs(result_using_unit_normal - face_area) > pow(10,-5)");
+	}
+
+
+//	OK, this works but only because I run the TestCD method, which uses deal's vertices which I know the order,
+//	so I could set the order below. But in real cut faces, I do not really know the order, I would need to reorder the vertices and use the script above.
+
+
+//	Point<3> X0 = Obj_VectorNewLine[0].X0;
+//	Point<3> X1 = Obj_VectorNewLine[1 /*2*/].X0;
+//	Point<3> X2 = Obj_VectorNewLine[2 /*1*/].X0;
+//	Point<3> X3 = Obj_VectorNewLine[3].X0;
+
+//	Point<3> X0 = vertices[0];
+//	Point<3> X1 = vertices[1];
+//	Point<3> X2 = vertices[2];
+//	Point<3> X3 = vertices[3];
+//
+//		std::cout << " X0: " << X0 << std::endl; // seems ok
+//		std::cout << " X1: " << X1 << std::endl; // seems ok
+//		std::cout << " X2: " << X2 << std::endl; // seems ok
+//		std::cout << " X3: " << X3 << std::endl; // seems ok
+//
+//	Point<3> result = CrossProduct((X2-X0),(X3-X1) );
+//	std::cout << "result: " << result << std::endl;
+//		face_area = fabs(VectorLength(result)/2.0);
+//			std::cout << "face_area: " << face_area << std::endl;
+//			std::cout << std::endl;
+//	Source: http://stackoverflow.com/questions/12642256/python-find-area-of-polygon-from-xyz-coordinates?rq=1
+//		    total = [0, 0, 0]
+//		    for i in range(len(poly)):
+//		        vi1 = poly[i]
+//		        if i is len(poly)-1:
+//		            vi2 = poly[0]
+//		        else:
+//		            vi2 = poly[i+1]
+//		        prod = cross(vi1, vi2)
+//		        total[0] += prod[0]
+//		        total[1] += prod[1]
+//		        total[2] += prod[2]
+//		    result = dot(total, unit_normal(poly[0], poly[1], poly[2]))
+//		    return abs(result/2)
+}
+double NewFace_3D::GetFaceArea ()
+{
+	return face_area;
+}
+// returns one of the two normal vectors from a plane given by three points. Used only to check the CompFaceArea method.
+Point<3> NewFace_3D::unit_normal (Point<3> a, Point<3> b, Point<3> c)
+{
+	FullMatrix<double> A(3,3);
+	FullMatrix<double> B(3,3);
+	FullMatrix<double> C(3,3);
+
+	A(0,0) =
+	A(1,0) =
+	A(2,0) =
+					B(0,1) =
+					B(1,1) =
+				    B(2,1) =
+				    				C(0,2) =
+				    				C(1,2) =
+				    				C(2,2) = 1.0;
+
+	A(0,1) = C(0,1) = a(1);
+	A(1,1) = C(1,1) = b(1);
+	A(2,1) = C(2,1) = c(1);
+
+	A(0,2) = B(0,2) = a(2);
+	A(1,2) = B(1,2) = b(2);
+	A(2,2) = B(2,2) = c(2);
+
+	C(0,0) = B(0,0) = a(0);
+	C(1,0) = B(1,0) = b(0);
+	C(2,0) = B(2,0) = c(0);
+
+	double det_A = A.determinant();
+	double det_B = B.determinant();
+	double det_C = C.determinant();
+	double magnitude = std::sqrt(det_A*det_A+det_B*det_B+det_C*det_C);
+//	double magnitude = sqrt(det_A*det_A+det_B*det_B+det_C*det_C);
+
+	Point<3> unit (det_A/magnitude, det_B/magnitude, det_C/magnitude);
+	return unit;
+}
+// Sort the vertices vector. Need: face_centroid, CompProjectionVars
+void NewFace_3D::SortVertices()
+{
+//	std::map < double, Point<2> > levelset_face_map;
+	std::map < double, Point<3> > vertices_map;
+	std::vector<Point<2> > vertices_ab;
+	for (unsigned int i = 0; i < vertices.size(); ++i)
+	{
+		Point<2> vertice_ab (vertices[i][alfa],vertices[i][beta]);
+		vertices_ab.push_back(vertice_ab);
+	}
+	for (unsigned int i = 0; i < vertices_ab.size(); ++i)
+	{
+//		Find the angle of the projected vertices based on the center of the polygon.
+		double key = atan2 (vertices[i][alfa]-face_centroid[alfa],vertices[i][beta]-face_centroid[beta]);
+		if (vertices_map.count(key) == 0)
+			vertices_map[key] = vertices[i];
+	}
+
+	std::map <double, Point<3> >::iterator it;
+	std::vector <Point<3>> sorted_vertices_ab; /*levelset_face_vertices_tangent;*/
+    for(it = vertices_map.begin(); it != vertices_map.end(); ++it )
+    	sorted_vertices_ab.push_back( it->second );
+
+	for (unsigned int i = 0; i < vertices.size(); ++i)
+	{
+		vertices[i] = sorted_vertices_ab[i];
+	}
 }

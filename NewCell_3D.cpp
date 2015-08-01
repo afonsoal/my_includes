@@ -23,16 +23,32 @@ NewCell_3D::NewCell_3D(	bool _is_surface_cell)
 	is_surface_cell = _is_surface_cell;
 	if (is_surface_cell)
 		number_of_faces = 0;
+
+	real_faces_vector.reserve(GeometryInfo<3>::faces_per_cell);
+}
+void NewCell_3D::InputNewRealFaceInfo(int _face_it)
+{
+	real_faces_info obj_real_face;
+	obj_real_face.face_it = _face_it;
+	obj_real_face.is_stabilization_face = false /*_is_stabilization_face*/;
+	real_faces_vector.push_back(obj_real_face);
 }
 
+void NewCell_3D::SetNewRealFaceStabilization ( int _face_it, bool _is_stabilization_face)
+{
+	real_faces_vector[_face_it].is_stabilization_face = _is_stabilization_face;
+}
 void NewCell_3D::InputNewFace (NewFace_3D &CutFace)
 {
 //	std::cout<< "Call to InputNewFace \n";
 //	CutFace.face_index = number_of_faces;
+
 	CutFace.SetFaceIndex(number_of_faces);
+//	CutFace.CompFaceArea(); // moved to ReorderAllVertices
 	++number_of_faces;
 	Obj_VectorNewFace.push_back(CutFace);
 }
+
 
 void NewCell_3D::SetIndex(/*hp::*/DoFHandler<3>::active_cell_iterator _index)
 {
@@ -53,8 +69,12 @@ void NewCell_3D::CompBoundaryFace(NewFace_3D &CutFaceBoundary)
 //			std::cout << "face_it: " << face_it << " line_it: " << line_it << " is_boundary_face: " << Obj_VectorNewFace[face_it].Obj_VectorNewLine[line_it].is_boundary_face << " end" << std::endl;
 			if (Obj_VectorNewFace[face_it].Obj_VectorNewLine[line_it].is_boundary_line)
 			{
+//				 OLD: USE REAL unit X0, X1. Should use the real!
 				Point<3> X0 = Obj_VectorNewFace[face_it].Obj_VectorNewLine[line_it].X0;
 				Point<3> X1 = Obj_VectorNewFace[face_it].Obj_VectorNewLine[line_it].X1;
+				// NEW: USE mapped unit X0, X1
+//				Point<3> X0 = Obj_VectorNewFace[face_it].Obj_VectorNewLine[line_it].X0_unit;
+//				Point<3> X1 = Obj_VectorNewFace[face_it].Obj_VectorNewLine[line_it].X1_unit;
 				for (unsigned int coord = 0; coord<3; ++coord)
 				{
 //					std::cout << "fabs(pow(10,-17): " << fabs(pow(10,-17)) << std::endl;
@@ -134,9 +154,14 @@ void NewCell_3D::CompCellCentroid()
 	cell_centroid[1] = Y_centroid/vertices.size();
 	cell_centroid[2] = Z_centroid/vertices.size();
 }
+// Need to be called AFTER setting up normal vectors!
 void NewCell_3D::ReorderAllVertices()
 {
 	for (int face_it = 0; face_it < number_of_faces; ++face_it)
+	{
 		Obj_VectorNewFace[face_it].ReorderAllLineVertices();
+		Obj_VectorNewFace[face_it].SortVertices();
+		Obj_VectorNewFace[face_it].CompFaceArea();
+	}
 }
 
