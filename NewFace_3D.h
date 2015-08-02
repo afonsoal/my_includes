@@ -89,6 +89,7 @@ public:
 	void CompAllLineNormals();
 
 	void  CompCutFaceNormal(Point<3> cell_centroid);
+	void CompCutFaceNormal_original(Point<3> cell_centroid);
 
 	void SetFaceNormal(Point<3> normal);
 

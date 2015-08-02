@@ -210,7 +210,7 @@ void NewFace_3D:: SetFaceNormal(Point<3> normal)
 // Calculate the normal vector of the CUT FACE.
 //	 Calculates the normal of the new cut FACe. For the other faces, use the usual
 //	// fe_face_values.normal_vector(q_point)
-void NewFace_3D:: CompCutFaceNormal(Point<3> cell_centroid)
+void NewFace_3D:: CompCutFaceNormal_original(Point<3> cell_centroid)
 {
 //	std::cout << "Call to CompCutFaceNormal \n";
 	// face_index is only set in InputNewFace, so this is not the real cut face face_index;
@@ -344,6 +344,101 @@ void NewFace_3D:: CompCutFaceNormal(Point<3> cell_centroid)
 //	std::cout << "normal: " << normal << std::endl;
 //	std::cout << "END to CompCutFaceNormal \n";
 //	face_normal_vector = normal;
+}
+
+// New approach, based on the face_centroid.
+void NewFace_3D:: CompCutFaceNormal(Point<3> cell_centroid)
+{
+	Point<3> vector_0;
+	Point<3> vector_1;
+	Point<3> normal_vector_0;
+		vector_0 = Obj_VectorNewLine[0].X1 - Obj_VectorNewLine[0].X0;
+		vector_1 = face_centroid - Obj_VectorNewLine[0].X0;
+		normal_vector_0 = CrossProduct(vector_0,vector_1);
+//		double length = sqrt(normal_vector_0[0]*normal_vector_0[0]+normal_vector_0[1]*normal_vector_0[1]+normal_vector_0[2]*normal_vector_0[2]);
+		double length = VectorLength(normal_vector_0);
+
+
+//		std::cout << "Obj_VectorNewLine[0].X0: " << Obj_VectorNewLine[0].X0 << std::endl;
+//		std::cout << "Obj_VectorNewLine[0].X1: " << Obj_VectorNewLine[0].X1 << std::endl;
+
+//		std::cout << "normal_vector_0: " << normal_vector_0 << std::endl;
+		normal_vector_0 = normal_vector_0/length;
+//					std::cout << "vector_0: " << vector_0 << " vector_1: " << vector_1 << std::endl;
+
+//		std::cout << "length: " << length << std::endl;
+//		std::cout << "normal_vector_0/length: " << normal_vector_0 << std::endl;
+		for ( int line_it = 0; line_it < number_of_lines; ++line_it)
+		{
+			std::cout << Obj_VectorNewLine[line_it].X0 << std::endl;
+			std::cout << Obj_VectorNewLine[line_it].X1 << std::endl;;
+			std::cout << std::endl;
+		}
+			//		if(0)
+		{
+				std::cout << "CosAngle(vector_0,vector_1): " << CosAngle(vector_0,vector_1) << std::endl;
+				std::cout << "fabs(CosAngle(vector_0,vector_1) - 1.0) > pow(10,-2): " << (fabs(CosAngle(vector_0,vector_1) - 1.0) > pow(10,-2)) << std::endl;
+				std::cout << "vector_0: " << vector_0 << std::endl;
+				std::cout << "vector_1: " << vector_1 << std::endl;
+				std::cout << "length: " << length << std::endl;
+				std::cout << "normal_vector_0: " << normal_vector_0 << std::endl;
+				std::cout << "normal_vector_1 " << -normal_vector_0 << std::endl;
+				std::cout << "Obj_VectorNewLine[0].X0: " << Obj_VectorNewLine[0].X0 << std::endl;
+				std::cout << "Obj_VectorNewLine[0].X1: " << Obj_VectorNewLine[0].X1 << std::endl;
+//				std::cout << "NORMAL: " << normal << std::endl;
+				std::cout << "face_index: " << face_index << std::endl;
+				std::cout << "is_boundary_face: " << is_boundary_face << std::endl;
+				std::cout << "face_centroid: " << face_centroid << std::endl;
+				std::cout << "cell_centroid: " << cell_centroid << std::endl;
+		}
+
+		assert ((length-pow(10,-3) > 0.0) );
+		assert( fabs( fabs(CosAngle(vector_0,vector_1))  - 1.0)  > pow(10,-2)  );
+
+
+//		if ( (length-pow(10,-3) > 0.0) &&
+//				( fabs( fabs(CosAngle(vector_0,vector_1))  - 1.0)  > pow(10,-2)  ) )
+//				assert(0);
+
+		Point<3> normal_vector_1 = -normal_vector_0;
+
+		// aux_nX represents a Point given by the vector normal_vector_X starting on the FACE centroid.
+		// For the normal_vector_X to be the real normal_vector, this Point aux_nX needs to be further from the CELL
+		// centroid than its counter part, which points inwards the cell.
+
+		Point<3> aux_n0 =  normal_vector_0+face_centroid;
+		Point<3> aux_n1 =  normal_vector_1+face_centroid;
+
+		Point<3> normal;
+
+		if ( distance(aux_n0, cell_centroid) > distance(aux_n1, cell_centroid) )
+			normal = normal_vector_0;
+
+		else
+			normal= normal_vector_1;
+
+		assert(normal == normal); // Catch NaN
+			SetFaceNormal(normal);
+if(0)
+{
+		std::cout << "CosAngle(vector_0,vector_1): " << CosAngle(vector_0,vector_1) << std::endl;
+		std::cout << "fabs(CosAngle(vector_0,vector_1) - 1.0) > pow(10,-2): " << (fabs(CosAngle(vector_0,vector_1) - 1.0) > pow(10,-2)) << std::endl;
+		std::cout << "vector_0: " << vector_0 << std::endl;
+		std::cout << "vector_1: " << vector_1 << std::endl;
+//		std::cout << "length: " << length << std::endl;
+		std::cout << "normal_vector_0: " << normal_vector_0 << std::endl;
+		std::cout << "normal_vector_1 " << normal_vector_1 << std::endl;
+		std::cout << "Obj_VectorNewLine[0].X0: " << Obj_VectorNewLine[0].X0 << std::endl;
+		std::cout << "Obj_VectorNewLine[0].X1: " << Obj_VectorNewLine[0].X1 << std::endl;
+		std::cout << "Obj_VectorNewLine[1].X0: " << Obj_VectorNewLine[1].X0 << std::endl;
+		std::cout << "Obj_VectorNewLine[1].X1: " << Obj_VectorNewLine[1].X1 << std::endl;
+		std::cout << "NORMAL: " << normal << std::endl;
+		std::cout << "face_index: " << face_index << std::endl;
+		std::cout << "is_boundary_face: " << is_boundary_face << std::endl;
+		std::cout << "face_centroid: " << face_centroid << std::endl;
+		std::cout << "cell_centroid: " << cell_centroid << std::endl;
+}
+
 }
 
 // Take the cross product of two vectors a and b.
